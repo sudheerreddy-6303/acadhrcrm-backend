@@ -74,7 +74,7 @@ exports.stats = async (req, res) => {
 // apply uniformly; `type` limits which directories feed the totals.
 exports.directory = async (req, res) => {
   try {
-    const { type = '', status = '', city = '', state = '', registration = '', search = '' } = req.query;
+    const { type = '', status = '', city = '', state = '', country = '', registration = '', search = '' } = req.query;
 
     const buildWhere = () => {
       const where = [];
@@ -82,6 +82,8 @@ exports.directory = async (req, res) => {
       if (status) { where.push('status = ?'); params.push(status); }
       if (city)   { where.push('city = ?');   params.push(city); }
       if (state)  { where.push('state = ?');  params.push(state); }
+      if (country){ where.push('country = ?'); params.push(country); }
+      if (!isAdmin(req)) { where.push('(imported = 0 OR assigned_to = ?)'); params.push(req.user.id); } // telecallers: non-imported or assigned
       if (registration) { where.push('registration = ?'); params.push(registration); }
       if (search) { where.push('(name LIKE ? OR city LIKE ?)'); params.push(`%${search}%`, `%${search}%`); }
       return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
@@ -147,7 +149,7 @@ exports.directory = async (req, res) => {
 // Subjects are stored comma-separated, so we split and count in JS.
 exports.subjects = async (req, res) => {
   try {
-    const { type = '', status = '', city = '', state = '', registration = '', search = '' } = req.query;
+    const { type = '', status = '', city = '', state = '', country = '', registration = '', search = '' } = req.query;
 
     const buildWhere = () => {
       const where = [];
@@ -155,6 +157,8 @@ exports.subjects = async (req, res) => {
       if (status) { where.push('status = ?'); params.push(status); }
       if (city)   { where.push('city = ?');   params.push(city); }
       if (state)  { where.push('state = ?');  params.push(state); }
+      if (country){ where.push('country = ?'); params.push(country); }
+      if (!isAdmin(req)) { where.push('(imported = 0 OR assigned_to = ?)'); params.push(req.user.id); } // telecallers: non-imported or assigned
       if (registration) { where.push('registration = ?'); params.push(registration); }
       if (search) { where.push('(name LIKE ? OR subjects LIKE ? OR city LIKE ?)'); params.push(`%${search}%`, `%${search}%`, `%${search}%`); }
       return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
@@ -194,7 +198,7 @@ exports.subjects = async (req, res) => {
       if (city)         { lWhere.push('city = ?');         lParams.push(city); }
       if (search)       { lWhere.push('(name LIKE ? OR requirement LIKE ? OR city LIKE ?)'); lParams.push(`%${search}%`, `%${search}%`, `%${search}%`); }
       // leads have no `state` column — skip leads only when a state filter is set.
-      if (!state) {
+      if (!state && !country) {
         const lClause = lWhere.length ? `WHERE ${lWhere.join(' AND ')}` : '';
         // Read each lead's registration so a lead a telecaller marks
         // 'registered' moves from the Unregistered into the Registered count.
@@ -237,7 +241,7 @@ exports.subjects = async (req, res) => {
 // Tally of how many teachers + tutors handle each class (from the classes field).
 exports.classes = async (req, res) => {
   try {
-    const { type = '', status = '', city = '', state = '', registration = '', search = '' } = req.query;
+    const { type = '', status = '', city = '', state = '', country = '', registration = '', search = '' } = req.query;
 
     const buildWhere = () => {
       const where = [];
@@ -245,6 +249,8 @@ exports.classes = async (req, res) => {
       if (status) { where.push('status = ?'); params.push(status); }
       if (city)   { where.push('city = ?');   params.push(city); }
       if (state)  { where.push('state = ?');  params.push(state); }
+      if (country){ where.push('country = ?'); params.push(country); }
+      if (!isAdmin(req)) { where.push('(imported = 0 OR assigned_to = ?)'); params.push(req.user.id); } // telecallers: non-imported or assigned
       if (registration) { where.push('registration = ?'); params.push(registration); }
       if (search) { where.push('(name LIKE ? OR subjects LIKE ? OR city LIKE ?)'); params.push(`%${search}%`, `%${search}%`, `%${search}%`); }
       return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };

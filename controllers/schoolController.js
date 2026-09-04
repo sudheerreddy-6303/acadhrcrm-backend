@@ -1,10 +1,14 @@
 const db = require('../config/db');
+const { sanitize, parse, sanitizeJob, parseJob } = require('../utils/followUps');
+
+// Subscription tiers a registered school can be placed on (acadhr.com — For Schools).
+const PLANS = ['basic', 'professional', 'enterprise'];
 
 // GET /api/schools?status=&search=
 // Read-only for everyone in the CRM (admins and telecallers both view).
 exports.list = async (req, res) => {
   try {
-    const { status, search, registration, state, city } = req.query;
+    const { status, search, registration, state, city, country } = req.query;
     const where = [];
     const params = [];
 
@@ -24,6 +28,15 @@ exports.list = async (req, res) => {
       where.push('city = ?');
       params.push(city);
     }
+    if (country) {
+      where.push('country = ?');
+      params.push(country);
+    }
+    // Telecallers don't see records imported by a telecaller; admins see all.
+    if (!req.user || req.user.role !== 'admin') {
+      where.push('(imported = 0 OR assigned_to = ?)');
+      params.push(req.user.id);
+    }
     if (search) {
       where.push('(name LIKE ? OR contact_person LIKE ? OR phone LIKE ? OR city LIKE ?)');
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
@@ -34,7 +47,8 @@ exports.list = async (req, res) => {
       `SELECT * FROM schools ${clause} ORDER BY created_at DESC LIMIT 500`,
       params
     );
-    return res.json({ schools: rows });
+    const schools = rows.map((r) => ({ ...r, follow_ups: parse(r.follow_ups) }));
+    return res.json({ schools });
   } catch (err) {
     console.error('[schools.list]', err);
     return res.status(500).json({ message: 'Could not load schools' });
@@ -112,5 +126,77 @@ exports.setRegistration = async (req, res) => {
   } catch (err) {
     console.error('[schools.setRegistration]', err);
     return res.status(500).json({ message: 'Could not update registration' });
+  }
+};
+
+// PATCH /api/schools/:id/followups  { followUps: [{date, remarks, status}] }
+exports.setFollowUps = async (req, res) => {
+  try {
+    const list = sanitize(req.body && req.body.followUps);
+    const [result] = await db.query(
+      'UPDATE schools SET follow_ups = ? WHERE id = ?',
+      [JSON.stringify(list), req.params.id]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: 'School not found' });
+    return res.json({ follow_ups: list });
+  } catch (err) {
+    console.error('[schools.setFollowUps]', err);
+    return res.status(500).json({ message: 'Could not save follow-ups' });
+  }
+};
+
+// GET /api/schools/:id  — one record (used by the full-page follow-up view)
+exports.getOne = async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM schools WHERE id = ? LIMIT 1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ message: 'School not found' });
+    const record = { ...rows[0], follow_ups: parse(rows[0].follow_ups), job_follow_up: parseJob(rows[0].job_follow_up) };
+    return res.json({ record });
+  } catch (err) {
+    console.error('[schools.getOne]', err);
+    return res.status(500).json({ message: 'Could not load school' });
+  }
+};
+
+// PATCH /api/schools/:id/plan  { plan: 'basic'|'most_popular'|'enterprise' }
+exports.setPlan = async (req, res) => {
+  try {
+    let plan = req.body && req.body.plan;
+    if (!PLANS.includes(plan)) plan = '';
+    const [result] = await db.query('UPDATE schools SET plan = ? WHERE id = ?', [plan, req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ message: 'School not found' });
+    return res.json({ plan });
+  } catch (err) {
+    console.error('[schools.setPlan]', err);
+    return res.status(500).json({ message: 'Could not save plan' });
+  }
+};
+
+// PATCH /api/schools/:id/jobfollowup  { job: { demo, interview, hired, description } }
+exports.setJobFollowUp = async (req, res) => {
+  try {
+    const job = sanitizeJob(req.body && req.body.job);
+    const [result] = await db.query(
+      'UPDATE schools SET job_follow_up = ? WHERE id = ?',
+      [JSON.stringify(job), req.params.id]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: 'School not found' });
+    return res.json({ job_follow_up: job });
+  } catch (err) {
+    console.error('[schools.setJobFollowUp]', err);
+    return res.status(500).json({ message: 'Could not save job follow-up' });
+  }
+};
+
+// PATCH /api/schools/:id/assign  { assigned_to }   (admin only — enforced in route)
+exports.assign = async (req, res) => {
+  try {
+    const assignedTo = (req.body && req.body.assigned_to) || null;
+    const [result] = await db.query('UPDATE schools SET assigned_to = ? WHERE id = ?', [assignedTo, req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ message: 'School not found' });
+    return res.json({ assigned_to: assignedTo });
+  } catch (err) {
+    console.error('[schools.assign]', err);
+    return res.status(500).json({ message: 'Could not assign' });
   }
 };
